@@ -6,6 +6,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Award,
+  BarChart3,
   Bell,
   Check,
   CheckCircle2,
@@ -18,6 +19,7 @@ import {
   Gavel,
   LayoutDashboard,
   LockKeyhole,
+  ListChecks,
   Megaphone,
   Minus,
   Pause,
@@ -28,6 +30,7 @@ import {
   Sparkles,
   Target,
   TimerReset,
+  TrendingUp,
   Trophy,
   UserRound,
   UsersRound,
@@ -46,6 +49,7 @@ import {
 } from "@/lib/house";
 
 type Tone = "red" | "amber" | "mint" | "violet";
+type AnalyticsTab = "scores" | "house" | "productivity";
 
 const teamColors: Record<Contestant["teamTone"], string> = {
   amber: "avatar-amber",
@@ -68,6 +72,7 @@ export default function Home() {
   const [timerSeconds, setTimerSeconds] = useState(30 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
   const [activeZone, setActiveZone] = useState("overview");
+  const [analyticsTab, setAnalyticsTab] = useState<AnalyticsTab>("scores");
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskAssignee, setNewTaskAssignee] = useState("kabir");
@@ -97,6 +102,17 @@ export default function Home() {
   const highestScorer = leaderboard[0];
   const totalVotes = Object.values(votes).reduce((sum, voteCount) => sum + voteCount, 0);
   const timerProgress = ((30 * 60 - timerSeconds) / (30 * 60)) * 100;
+  const averageScore = activeContestants.length ? Math.round(activeContestants.reduce((sum, contestant) => sum + contestant.points, 0) / activeContestants.length) : 0;
+  const productivityLeader = useMemo(() => [...activeContestants].sort((a, b) => b.productivity - a.productivity)[0], [activeContestants]);
+  const completionRate = tasks.length ? Math.round((completedTasks / tasks.length) * 100) : 0;
+  const teamBreakdown = useMemo(() => {
+    const totals = activeContestants.reduce<Record<string, { points: number; productivity: number; count: number }>>((result, contestant) => {
+      const current = result[contestant.team] ?? { points: 0, productivity: 0, count: 0 };
+      result[contestant.team] = { points: current.points + contestant.points, productivity: current.productivity + contestant.productivity, count: current.count + 1 };
+      return result;
+    }, {});
+    return Object.entries(totals).map(([team, value]) => ({ team, points: value.points, productivity: Math.round(value.productivity / value.count), count: value.count })).sort((a, b) => b.points - a.points);
+  }, [activeContestants]);
 
   const contestantName = (id: string) => contestants.find(contestant => contestant.id === id)?.name ?? "Unknown";
   const statusFor = (contestant: Contestant) => {
@@ -262,6 +278,7 @@ export default function Home() {
         <nav className="rail-nav" aria-label="Command center sections">
           <p className="rail-label">Command deck</p>
           <button className={`rail-link ${activeZone === "overview" ? "is-active" : ""}`} onClick={() => setActiveZone("overview")}><LayoutDashboard size={16} />Overview <span>01</span></button>
+          <button className={`rail-link ${activeZone === "analytics" ? "is-active" : ""}`} onClick={() => setActiveZone("analytics")}><BarChart3 size={16} />Analytics <span>03</span></button>
           <button className={`rail-link ${activeZone === "house" ? "is-active" : ""}`} onClick={() => setActiveZone("house")}><UsersRound size={16} />House roster <span>08</span></button>
           <button className={`rail-link ${activeZone === "tasks" ? "is-active" : ""}`} onClick={() => setActiveZone("tasks")}><Target size={16} />Task board <span>{tasks.length}</span></button>
           <button className={`rail-link ${activeZone === "danger" ? "is-active" : ""}`} onClick={() => setActiveZone("danger")}><Flame size={16} />Danger window <span className="nav-danger">{nominees.length}</span></button>
@@ -303,6 +320,13 @@ export default function Home() {
             <MetricCard label="Highest scorer" value={highestScorer ? String(highestScorer.points) : "—"} note={highestScorer?.name ?? "No active players"} tone="violet" icon={<Trophy size={15} />} />
             <MetricCard label="Tasks cleared" value={`${completedTasks}/${tasks.length}`} note="this game cycle" tone="mint" icon={<CheckCircle2 size={15} />} />
             <MetricCard label="In danger" value={String(nominees.length).padStart(2, "0")} note={`${totalVotes} public votes`} tone="red" icon={<Flame size={15} />} />
+          </section>
+
+          <section className="panel analytics-panel" id="analytics">
+            <div className="analytics-topline"><PanelHeader eyebrow="02 / ANALYTICS STUDIO" title="Score dashboard & house analytics" action={<span className="live-tag"><span className="sync-dot" /> LIVE CALC</span>} /><div className="analytics-tabs" role="tablist" aria-label="Analytics views"><button className={analyticsTab === "scores" ? "is-active" : ""} onClick={() => setAnalyticsTab("scores")} role="tab" aria-selected={analyticsTab === "scores"}><BarChart3 size={14} />Score dashboard</button><button className={analyticsTab === "house" ? "is-active" : ""} onClick={() => setAnalyticsTab("house")} role="tab" aria-selected={analyticsTab === "house"}><UsersRound size={14} />House statistics</button><button className={analyticsTab === "productivity" ? "is-active" : ""} onClick={() => setAnalyticsTab("productivity")} role="tab" aria-selected={analyticsTab === "productivity"}><ListChecks size={14} />Productivity tracker</button></div></div>
+            {analyticsTab === "scores" && <div className="analytics-body"><div className="analytics-lead-card"><span className="analytics-kicker"><Trophy size={13} /> CURRENT SCORE LEADER</span><div className="analytics-lead-score">{highestScorer?.points ?? 0}<small>PTS</small></div><strong>{highestScorer?.name ?? "No active housemate"}</strong><span>+{highestScorer ? highestScorer.points - (leaderboard[1]?.points ?? highestScorer.points) : 0} ahead of the next rank</span></div><div className="score-chart"><div className="chart-title"><div><span className="analytics-kicker"><TrendingUp size={13} /> POINTS BY CONTESTANT</span><strong>Live ranking spread</strong></div><span className="chart-meta">AVG {averageScore} PTS</span></div>{leaderboard.slice(0, 6).map((contestant, index) => <div className="score-bar-row" key={contestant.id}><span className="score-rank">{String(index + 1).padStart(2, "0")}</span><span className="score-name">{contestant.name.split(" ")[0]}</span><div className="score-bar-track"><span style={{ width: `${Math.round((contestant.points / Math.max(highestScorer?.points ?? 1, 1)) * 100)}%` }} /></div><strong>{contestant.points}</strong></div>)}</div><div className="analytics-side-stats"><MiniAnalyticsStat label="Public pressure" value={`${totalVotes}`} detail="votes live" tone="red" /><MiniAnalyticsStat label="Average score" value={`${averageScore}`} detail="points / active" tone="amber" /><MiniAnalyticsStat label="Top team" value={teamBreakdown[0]?.team ?? "—"} detail={`${teamBreakdown[0]?.points ?? 0} combined pts`} tone="violet" /></div></div>}
+            {analyticsTab === "house" && <div className="analytics-body house-analytics"><div className="stat-hero"><span className="analytics-kicker"><Activity size={13} /> HOUSE HEALTH INDEX</span><strong>{Math.round((completionRate + (activeContestants.length / 8) * 100 + (100 - (nominees.length / Math.max(activeContestants.length, 1)) * 100)) / 3)}<small>/ 100</small></strong><p>Composite of task completion, active roster, and nomination pressure.</p><div className="health-track"><span style={{ width: `${Math.round((completionRate + (activeContestants.length / 8) * 100 + (100 - (nominees.length / Math.max(activeContestants.length, 1)) * 100)) / 3)}%` }} /></div></div><div className="house-stat-grid"><MiniAnalyticsStat label="Active housemates" value={`${activeContestants.length}/8`} detail="roster health" tone="amber" /><MiniAnalyticsStat label="Tasks cleared" value={`${completedTasks}/${tasks.length}`} detail={`${completionRate}% completion`} tone="mint" /><MiniAnalyticsStat label="Nominees" value={`${nominees.length}`} detail="danger window" tone="red" /><MiniAnalyticsStat label="Captain" value={captain?.initials ?? "—"} detail={captain?.name ?? "seat vacant"} tone="violet" /></div><div className="team-table"><div className="team-table-head"><span>TEAM PERFORMANCE</span><span>MEMBERS</span><span>POINTS</span><span>AVG PRODUCTIVITY</span></div>{teamBreakdown.map(team => <div className="team-table-row" key={team.team}><strong>{team.team}</strong><span>{team.count}</span><span>{team.points}</span><div><div className="productivity-line"><span style={{ width: `${team.productivity}%` }} /></div><b>{team.productivity}%</b></div></div>)}</div></div>}
+            {analyticsTab === "productivity" && <div className="analytics-body productivity-analytics"><div className="productivity-summary"><div><span className="analytics-kicker"><Gauge size={13} /> PRODUCTIVITY LEADER</span><strong>{productivityLeader?.name ?? "—"}</strong><p>{productivityLeader?.tasksCompleted ?? 0} completed of {productivityLeader?.tasksAssigned ?? 0} assigned tasks</p></div><div className="productivity-summary-score">{productivityLeader?.productivity ?? 0}%</div></div><div className="productivity-roster">{[...activeContestants].sort((a, b) => b.productivity - a.productivity).map(contestant => <div className="productivity-row" key={contestant.id}><div className={`contestant-avatar ${teamColors[contestant.teamTone]}`}>{contestant.initials}</div><div className="productivity-person"><strong>{contestant.name}</strong><span>{contestant.tasksCompleted}/{contestant.tasksAssigned} tasks complete</span></div><div className="productivity-bar"><div className="productivity-line"><span style={{ width: `${contestant.productivity}%` }} /></div></div><strong className="productivity-value">{contestant.productivity}%</strong></div>)}</div><div className="productivity-foot"><span><CheckCircle2 size={14} /> {completedTasks} tasks cleared</span><span><Target size={14} /> {tasks.length - completedTasks} assignments in progress</span><span><TrendingUp size={14} /> {productivityLeader?.name.split(" ")[0] ?? "—"} is setting the pace</span></div></div>}
           </section>
 
           <div className="dashboard-grid">
@@ -386,6 +410,10 @@ function MetricCard({ label, value, note, tone, icon }: { label: string; value: 
 
 function PanelHeader({ eyebrow, title, action }: { eyebrow: string; title: string; action?: React.ReactNode }) {
   return <div className="panel-header"><div><div className="panel-eyebrow">{eyebrow}</div><h2>{title}</h2></div>{action}</div>;
+}
+
+function MiniAnalyticsStat({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: Tone }) {
+  return <div className={`mini-analytics-stat tone-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
 }
 
 function Stat({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
