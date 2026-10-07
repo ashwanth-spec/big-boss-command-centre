@@ -10,6 +10,7 @@ import {
   Bell,
   Check,
   CheckCircle2,
+  CheckCheck,
   ChevronRight,
   CircleDot,
   Clock3,
@@ -25,13 +26,16 @@ import {
   Pause,
   Play,
   Plus,
+  Radio,
   RotateCcw,
   Shield,
+  ShieldCheck,
   Sparkles,
   Target,
   TimerReset,
   TrendingUp,
   Trophy,
+  UserCog,
   UserRound,
   UsersRound,
   Vote,
@@ -50,6 +54,19 @@ import {
 
 type Tone = "red" | "amber" | "mint" | "violet";
 type AnalyticsTab = "scores" | "house" | "productivity";
+type UserRole = "bigboss" | "taskmaster" | "observer";
+
+const roleConfig: Record<UserRole, { label: string; short: string; description: string; permissions: string[] }> = {
+  bigboss: { label: "Big Boss", short: "BB", description: "Full command access", permissions: ["Scores", "Tasks", "Roles", "Broadcast", "Evictions"] },
+  taskmaster: { label: "Task Master", short: "TM", description: "Tasks + broadcast access", permissions: ["Scores", "Tasks", "Broadcast"] },
+  observer: { label: "Observer", short: "OB", description: "Read-only house view", permissions: ["Analytics", "Live log", "Notifications"] },
+};
+
+const rolePermissions: Record<UserRole, { adjustScores: boolean; manageTasks: boolean; manageHouse: boolean; broadcast: boolean; castVotes: boolean }> = {
+  bigboss: { adjustScores: true, manageTasks: true, manageHouse: true, broadcast: true, castVotes: true },
+  taskmaster: { adjustScores: true, manageTasks: true, manageHouse: false, broadcast: true, castVotes: false },
+  observer: { adjustScores: false, manageTasks: false, manageHouse: false, broadcast: false, castVotes: false },
+};
 
 const teamColors: Record<Contestant["teamTone"], string> = {
   amber: "avatar-amber",
@@ -73,11 +90,16 @@ export default function Home() {
   const [timerRunning, setTimerRunning] = useState(false);
   const [activeZone, setActiveZone] = useState("overview");
   const [analyticsTab, setAnalyticsTab] = useState<AnalyticsTab>("scores");
+  const [currentRole, setCurrentRole] = useState<UserRole>("bigboss");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(3);
   const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskAssignee, setNewTaskAssignee] = useState("kabir");
   const [newTaskPoints, setNewTaskPoints] = useState("10");
   const [announcementDraft, setAnnouncementDraft] = useState("");
+  const access = rolePermissions[currentRole];
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -124,14 +146,22 @@ export default function Home() {
   };
 
   const pushActivity = (text: string, tone: Tone) => {
-    setActivity(current => [{ id: `evt-${Date.now()}`, time: clockNow(), text, tone }, ...current].slice(0, 5));
+    setActivity(current => [{ id: `evt-${Date.now()}`, time: clockNow(), text, tone }, ...current].slice(0, 12));
   };
 
   const pushAnnouncement = (text: string, label: string, tone: Tone) => {
     setAnnouncements(current => [{ id: `ann-${Date.now()}`, time: clockNow(), label, text, tone }, ...current].slice(0, 6));
+    setUnreadNotifications(current => Math.min(9, current + 1));
+  };
+
+  const requireAccess = (allowed: boolean, feature: string) => {
+    if (allowed) return true;
+    toast.error("Access restricted", { description: `${roleConfig[currentRole].label} cannot use ${feature}. Switch role to continue.` });
+    return false;
   };
 
   const handlePoints = (id: string, delta: number) => {
+    if (!requireAccess(access.adjustScores, "score controls")) return;
     const person = contestants.find(contestant => contestant.id === id);
     if (!person || person.state === "evicted") return;
     const nextPoints = Math.max(0, person.points + delta);
@@ -142,6 +172,7 @@ export default function Home() {
   };
 
   const handleTaskComplete = (taskId: string) => {
+    if (!requireAccess(access.manageTasks, "task controls")) return;
     const task = tasks.find(currentTask => currentTask.id === taskId);
     if (!task || task.completed) return;
     const assignee = contestants.find(contestant => contestant.id === task.assigneeId);
@@ -160,6 +191,7 @@ export default function Home() {
   };
 
   const handleAssignTask = () => {
+    if (!requireAccess(access.manageTasks, "task assignment")) return;
     const title = newTaskTitle.trim();
     const points = Number(newTaskPoints);
     if (!title || !newTaskAssignee || !Number.isFinite(points) || points <= 0) {
@@ -177,6 +209,7 @@ export default function Home() {
   };
 
   const handleCaptain = (id: string) => {
+    if (!requireAccess(access.manageHouse, "captaincy controls")) return;
     if (id === "") {
       setCaptainId(null);
       pushActivity("Captaincy role removed", "violet");
@@ -193,6 +226,7 @@ export default function Home() {
   };
 
   const handleImmunity = (id: string) => {
+    if (!requireAccess(access.manageHouse, "immunity controls")) return;
     if (id === "") {
       setImmunityId(null);
       pushActivity("Immunity shield removed", "mint");
@@ -210,6 +244,7 @@ export default function Home() {
   };
 
   const handleNominate = (id: string) => {
+    if (!requireAccess(access.manageHouse, "nomination controls")) return;
     const person = contestants.find(contestant => contestant.id === id);
     if (!person || person.state === "evicted") return;
     if (immunityId === id) {
@@ -230,6 +265,7 @@ export default function Home() {
   };
 
   const handleVote = (id: string) => {
+    if (!requireAccess(access.castVotes, "public voting")) return;
     if (!nomineeIds.includes(id)) return;
     const nextVotes = (votes[id] ?? 0) + 1;
     setVotes(current => ({ ...current, [id]: nextVotes }));
@@ -238,6 +274,7 @@ export default function Home() {
   };
 
   const handleEviction = (id: string) => {
+    if (!requireAccess(access.manageHouse, "eviction controls")) return;
     const person = contestants.find(contestant => contestant.id === id);
     if (!person || !nomineeIds.includes(id)) return;
     setContestants(current => current.map(contestant => contestant.id === id ? { ...contestant, state: "evicted" } : contestant));
@@ -250,6 +287,7 @@ export default function Home() {
   };
 
   const handleAnnouncement = () => {
+    if (!requireAccess(access.broadcast, "broadcasts")) return;
     const message = announcementDraft.trim();
     if (!message) return;
     pushAnnouncement(message, "BIG BOSS", "amber");
@@ -283,6 +321,7 @@ export default function Home() {
           <button className={`rail-link ${activeZone === "tasks" ? "is-active" : ""}`} onClick={() => setActiveZone("tasks")}><Target size={16} />Task board <span>{tasks.length}</span></button>
           <button className={`rail-link ${activeZone === "danger" ? "is-active" : ""}`} onClick={() => setActiveZone("danger")}><Flame size={16} />Danger window <span className="nav-danger">{nominees.length}</span></button>
           <button className={`rail-link ${activeZone === "vote" ? "is-active" : ""}`} onClick={() => setActiveZone("vote")}><Vote size={16} />Eviction vote <span>{totalVotes}</span></button>
+          <button className={`rail-link ${activeZone === "access" ? "is-active" : ""}`} onClick={() => setActiveZone("access")}><ShieldCheck size={16} />Access control <span>{roleConfig[currentRole].short}</span></button>
         </nav>
 
         <div className="rail-callout">
@@ -302,7 +341,7 @@ export default function Home() {
       <main className="command-main">
         <header className="topbar">
           <div className="breadcrumb"><span>HOUSE /</span> {activeZone === "overview" ? "LIVE OVERVIEW" : activeZone.toUpperCase()}</div>
-          <div className="topbar-actions"><span className="sync-pill"><span className="sync-dot" /> SYNCED JUST NOW</span><button className="icon-button" aria-label="Notifications"><Bell size={17} /><span className="notification-badge">3</span></button><button className="operator-chip"><span className="operator-avatar small">BB</span><span>Big Boss</span><ChevronRight size={14} /></button></div>
+          <div className="topbar-actions"><span className="sync-pill"><span className="sync-dot" /> SYNCED JUST NOW</span><div className="topbar-popover-wrap"><button className={`icon-button ${notificationsOpen ? "is-open" : ""}`} aria-label="Notifications" onClick={() => { setNotificationsOpen(current => !current); setRoleMenuOpen(false); setUnreadNotifications(0); }}><Bell size={17} />{unreadNotifications > 0 && <span className="notification-badge">{unreadNotifications}</span>}</button>{notificationsOpen && <div className="notification-popover"><div className="popover-heading"><div><span className="panel-eyebrow">EVENT CENTER</span><strong>House notifications</strong></div><span className="sync-dot" /></div><div className="notification-list">{announcements.slice(0, 4).map(item => <div className="notification-item" key={item.id}><span className={`announcement-pin pin-${item.tone}`} /><div><b>{item.label}</b><p>{item.text}</p><time>{item.time}</time></div></div>)}</div><span className="popover-foot"><CheckCheck size={13} /> All events synced to the live log</span></div>}</div><div className="topbar-popover-wrap"><button className="operator-chip" onClick={() => { setRoleMenuOpen(current => !current); setNotificationsOpen(false); }}><span className="operator-avatar small">{roleConfig[currentRole].short}</span><span>{roleConfig[currentRole].label}</span><ChevronRight size={14} /></button>{roleMenuOpen && <div className="role-popover"><div className="popover-heading"><div><span className="panel-eyebrow">ROLE-BASED ACCESS</span><strong>Switch operator role</strong></div><UserCog size={16} className="icon-muted" /></div>{(Object.keys(roleConfig) as UserRole[]).map(role => <button className={`role-option ${currentRole === role ? "is-selected" : ""}`} key={role} onClick={() => { setCurrentRole(role); setRoleMenuOpen(false); pushActivity(`Operator role switched to ${roleConfig[role].label}`, "violet"); toast.success("Role updated", { description: roleConfig[role].description }); }}><span className="role-avatar">{roleConfig[role].short}</span><span><strong>{roleConfig[role].label}</strong><small>{roleConfig[role].description}</small></span>{currentRole === role && <Check size={14} />}</button>)}</div>}</div></div>
         </header>
 
         <div className="content-wrap" id="overview">
@@ -340,7 +379,7 @@ export default function Home() {
                     <div className="rank-cell"><span className="rank-number">{String(index + 1).padStart(2, "0")}</span><div className={`contestant-avatar ${teamColors[contestant.teamTone]}`}>{contestant.initials}</div><div className="contestant-info"><strong>{contestant.name}</strong><span>TEAM {contestant.team.toUpperCase()} {status !== "Active" && <i className={`status-chip status-${status.toLowerCase()}`}>{status === "Captain" ? <Crown size={10} /> : status === "Immune" ? <Shield size={10} /> : <Flame size={10} />} {status}</i>}</span></div></div>
                     <div className="productivity-cell"><div className="productivity-line"><span style={{ width: `${contestant.productivity}%` }} /></div><b>{contestant.productivity}%</b></div>
                     <div className="points-cell"><strong>{contestant.points}</strong><span>PTS</span></div>
-                    <div className="move-cell"><button className="point-button plus" onClick={() => handlePoints(contestant.id, 5)} aria-label={`Add points to ${contestant.name}`}><Plus size={13} /></button><button className="point-button minus" onClick={() => handlePoints(contestant.id, -5)} aria-label={`Deduct points from ${contestant.name}`}><Minus size={13} /></button></div>
+                    <div className="move-cell"><button className="point-button plus" disabled={!access.adjustScores} onClick={() => handlePoints(contestant.id, 5)} aria-label={`Add points to ${contestant.name}`}><Plus size={13} /></button><button className="point-button minus" disabled={!access.adjustScores} onClick={() => handlePoints(contestant.id, -5)} aria-label={`Deduct points from ${contestant.name}`}><Minus size={13} /></button></div>
                   </div>;
                 })}
               </div>
@@ -350,7 +389,7 @@ export default function Home() {
             <aside className="right-stack">
               <section className="panel announcement-panel" id="announcements">
                 <PanelHeader eyebrow="02 / BROADCAST" title="Big Boss announcement" action={<Megaphone size={17} className="icon-muted" />} />
-                <div className="announcement-compose"><input value={announcementDraft} onChange={event => setAnnouncementDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAnnouncement(); }} placeholder="Broadcast a message to the house…" /><button onClick={handleAnnouncement} aria-label="Send announcement"><ArrowUpRight size={16} /></button></div>
+                <div className="announcement-compose"><input disabled={!access.broadcast} value={announcementDraft} onChange={event => setAnnouncementDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAnnouncement(); }} placeholder={access.broadcast ? "Broadcast a message to the house…" : "Broadcast access restricted for this role"} /><button disabled={!access.broadcast} onClick={handleAnnouncement} aria-label="Send announcement"><ArrowUpRight size={16} /></button></div>
                 <div className="announcement-list">{announcements.slice(0, 4).map(announcement => <div className="announcement-item" key={announcement.id}><span className={`announcement-pin pin-${announcement.tone}`} /><div><div className="announcement-meta"><b>{announcement.label}</b><span>{announcement.time}</span></div><p>{announcement.text}</p></div></div>)}</div>
                 <button className="text-link" onClick={() => setActiveZone("overview")}>View full broadcast log <ChevronRight size={14} /></button>
               </section>
@@ -365,7 +404,7 @@ export default function Home() {
 
           <div className="operations-grid" id="tasks">
             <section className="panel task-panel">
-              <PanelHeader eyebrow="03 / DUTY ROSTER" title="Task operations" action={<button className="outline-button" onClick={() => setTaskFormOpen(current => !current)}><Plus size={14} /> Assign task</button>} />
+              <PanelHeader eyebrow="03 / DUTY ROSTER" title="Task operations" action={<button className="outline-button" disabled={!access.manageTasks} onClick={() => setTaskFormOpen(current => !current)}><Plus size={14} /> Assign task</button>} />
               {taskFormOpen && <div className="task-form"><input autoFocus value={newTaskTitle} onChange={event => setNewTaskTitle(event.target.value)} onKeyDown={event => { if (event.key === "Enter") handleAssignTask(); }} placeholder="Task brief" /><select value={newTaskAssignee} onChange={event => setNewTaskAssignee(event.target.value)}>{activeContestants.map(contestant => <option key={contestant.id} value={contestant.id}>{contestant.name}</option>)}</select><div className="task-points-input"><input type="number" min="1" value={newTaskPoints} onChange={event => setNewTaskPoints(event.target.value)} /><span>pts</span></div><button className="primary-button compact" onClick={handleAssignTask}>Drop task</button></div>}
               <div className="task-list">{tasks.slice(0, 5).map(task => { const assignee = contestants.find(contestant => contestant.id === task.assigneeId); return <div className={`task-row ${task.completed ? "is-complete" : ""}`} key={task.id}><button className={`task-check ${task.completed ? "checked" : ""}`} onClick={() => handleTaskComplete(task.id)} aria-label={task.completed ? "Task completed" : `Mark ${task.title} complete`}>{task.completed ? <Check size={14} /> : <CircleDot size={14} />}</button><div className="task-main"><strong>{task.title}</strong><span>{assignee?.name} <i>·</i> {task.due}</span></div><span className={`task-reward ${task.completed ? "earned" : ""}`}>{task.completed ? "CLEARED" : `+${task.points} PTS`}</span><ChevronRight size={15} className="task-chevron" /></div>; })}</div>
               <div className="task-footer"><span><CheckCircle2 size={13} /> {completedTasks} cleared</span><span><Clock3 size={13} /> {tasks.length - completedTasks} in progress</span></div>
@@ -384,14 +423,27 @@ export default function Home() {
             <section className="panel danger-panel">
               <PanelHeader eyebrow="05 / EVICTION BOARD" title="Danger window" action={<span className="danger-live"><span className="live-dot" /> VOTING LIVE</span>} />
               <div className="danger-subhead"><p>Nominees are ranked by public votes. The highest tally is currently exposed.</p><span>{totalVotes} total votes cast</span></div>
-              {sortedNominees.length === 0 ? <div className="empty-state"><Shield size={22} /><strong>No one is in danger.</strong><span>Nominate an active housemate from the role desk.</span></div> : <div className="nominee-list">{sortedNominees.map((nominee, index) => { const voteCount = votes[nominee.id] ?? 0; const voteWidth = Math.min(100, Math.max(10, (voteCount / Math.max(...Object.values(votes), 1)) * 100)); return <div className={`nominee-row ${index === 0 ? "is-leading" : ""}`} key={nominee.id}><span className="danger-rank">{String(index + 1).padStart(2, "0")}</span><div className={`contestant-avatar ${teamColors[nominee.teamTone]}`}>{nominee.initials}</div><div className="nominee-details"><strong>{nominee.name}</strong><span>TEAM {nominee.team.toUpperCase()} · {nominee.points} PTS</span><div className="vote-meter"><span style={{ width: `${voteWidth}%` }} /></div></div><div className="vote-count"><strong>{voteCount}</strong><span>VOTES</span></div><button className="vote-button" onClick={() => handleVote(nominee.id)}><Plus size={13} /> Vote</button><button className="evict-button" onClick={() => handleEviction(nominee.id)} title={`Evict ${nominee.name}`}><Gavel size={14} /></button></div>; })}</div>}
+              {sortedNominees.length === 0 ? <div className="empty-state"><Shield size={22} /><strong>No one is in danger.</strong><span>Nominate an active housemate from the role desk.</span></div> : <div className="nominee-list">{sortedNominees.map((nominee, index) => { const voteCount = votes[nominee.id] ?? 0; const voteWidth = Math.min(100, Math.max(10, (voteCount / Math.max(...Object.values(votes), 1)) * 100)); return <div className={`nominee-row ${index === 0 ? "is-leading" : ""}`} key={nominee.id}><span className="danger-rank">{String(index + 1).padStart(2, "0")}</span><div className={`contestant-avatar ${teamColors[nominee.teamTone]}`}>{nominee.initials}</div><div className="nominee-details"><strong>{nominee.name}</strong><span>TEAM {nominee.team.toUpperCase()} · {nominee.points} PTS</span><div className="vote-meter"><span style={{ width: `${voteWidth}%` }} /></div></div><div className="vote-count"><strong>{voteCount}</strong><span>VOTES</span></div><button className="vote-button" disabled={!access.castVotes} onClick={() => handleVote(nominee.id)}><Plus size={13} /> Vote</button><button className="evict-button" disabled={!access.manageHouse} onClick={() => handleEviction(nominee.id)} title={`Evict ${nominee.name}`}><Gavel size={14} /></button></div>; })}</div>}
               <div className="danger-footer"><span><AlertTriangle size={13} /> Immunity protects Maya Shah from this window.</span><span>Eviction is irreversible in this game cycle.</span></div>
             </section>
 
             <aside className="right-stack lower-stack">
-              <section className="panel timer-panel"><div className="timer-top"><div><div className="panel-eyebrow"><Clock3 size={13} /> TASK TIMER</div><h3>Pantry reset window</h3></div><span className={`timer-status ${timerRunning ? "running" : ""}`}>{timerRunning ? "RUNNING" : "PAUSED"}</span></div><div className="timer-display"><span>{formatTime(timerSeconds)}</span><small>MINUTES / SECONDS</small></div><div className="timer-track"><span style={{ width: `${timerProgress}%` }} /></div><div className="timer-controls"><button className="primary-button" onClick={() => setTimerRunning(current => !current)}>{timerRunning ? <Pause size={15} /> : <Play size={15} />}{timerRunning ? "Pause timer" : "Start timer"}</button><button className="reset-button" onClick={() => { setTimerRunning(false); setTimerSeconds(30 * 60); toast("Timer reset", { description: "Pantry reset window is back at 30:00." }); }}><RotateCcw size={14} /> Reset</button></div></section>
+              <section className="panel timer-panel"><div className="timer-top"><div><div className="panel-eyebrow"><Clock3 size={13} /> TASK TIMER</div><h3>Pantry reset window</h3></div><span className={`timer-status ${timerRunning ? "running" : ""}`}>{timerRunning ? "RUNNING" : "PAUSED"}</span></div><div className="timer-display"><span>{formatTime(timerSeconds)}</span><small>MINUTES / SECONDS</small></div><div className="timer-track"><span style={{ width: `${timerProgress}%` }} /></div><div className="timer-controls"><button className="primary-button" disabled={!access.manageTasks} onClick={() => setTimerRunning(current => !current)}>{timerRunning ? <Pause size={15} /> : <Play size={15} />}{timerRunning ? "Pause timer" : "Start timer"}</button><button className="reset-button" disabled={!access.manageTasks} onClick={() => { setTimerRunning(false); setTimerSeconds(30 * 60); toast("Timer reset", { description: "Pantry reset window is back at 30:00." }); }}><RotateCcw size={14} /> Reset</button></div></section>
               <section className="panel stats-panel"><PanelHeader eyebrow="06 / HOUSE STATS" title="Live statistics" action={<Zap size={16} className="icon-muted" />} /><div className="stats-grid"><Stat label="Avg. productivity" value={`${Math.round(activeContestants.reduce((sum, contestant) => sum + contestant.productivity, 0) / Math.max(activeContestants.length, 1))}%`} icon={<Gauge size={14} />} /><Stat label="Tasks assigned" value={String(tasks.length)} icon={<Target size={14} />} /><Stat label="Top team" value={topTeam(contestants)} icon={<Award size={14} />} /><Stat label="Votes live" value={String(totalVotes)} icon={<Vote size={14} />} /></div><div className="activity-mini"><div className="activity-heading"><span>ACTIVITY FEED</span><span className="activity-live"><span className="sync-dot" /> LIVE</span></div>{activity.slice(0, 3).map(event => <div className="activity-row" key={event.id}><span className={`activity-dot dot-${event.tone}`} /><span>{event.text}</span><time>{event.time}</time></div>)}</div></section>
             </aside>
+          </div>
+
+          <div className="feature-grid" id="access">
+            <section className="panel access-panel">
+              <PanelHeader eyebrow="07 / SECURITY DESK" title="Role-based access" action={<ShieldCheck size={17} className="icon-muted" />} />
+              <div className="access-intro"><div className="access-badge"><LockKeyhole size={15} /></div><div><strong>{roleConfig[currentRole].label} session</strong><span>{roleConfig[currentRole].description}. Permission changes apply instantly.</span></div></div>
+              <div className="role-card-list">{(Object.keys(roleConfig) as UserRole[]).map(role => <button className={`role-card ${currentRole === role ? "is-selected" : ""}`} key={role} onClick={() => { setCurrentRole(role); pushActivity(`Operator role switched to ${roleConfig[role].label}`, "violet"); toast.success("Role updated", { description: roleConfig[role].description }); }}><span className="role-avatar">{roleConfig[role].short}</span><span className="role-card-copy"><strong>{roleConfig[role].label}</strong><small>{roleConfig[role].description}</small></span><span className="role-permissions">{roleConfig[role].permissions.map(permission => <i key={permission}>{permission}</i>)}</span>{currentRole === role && <Check size={15} className="role-check" />}</button>)}</div>
+            </section>
+            <section className="panel activity-panel" id="activity">
+              <PanelHeader eyebrow="08 / LIVE EVENT STREAM" title="Real-time activity log" action={<span className="activity-live"><span className="sync-dot" /> STREAMING</span>} />
+              <div className="activity-log">{activity.map(event => <div className="activity-log-row" key={event.id}><span className={`activity-dot dot-${event.tone}`} /><div><strong>{event.text}</strong><small>HOUSE EVENT / {event.tone.toUpperCase()}</small></div><time>{event.time}</time></div>)}</div>
+              <div className="activity-log-footer"><span><Radio size={13} /> Live events stay in chronological order.</span><span>{activity.length} events retained</span></div>
+            </section>
           </div>
         </div>
       </main>

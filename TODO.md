@@ -15,3 +15,10 @@
 ## Validation evidence
 
 The completed implementation passes `pnpm check`, `pnpm test` (6 tests), and `pnpm build`. The live preview responds with `GET /api/health` and serves the required JSON route manifest at `GET /manus-routes.json`.
+
+## Feature bundle update
+
+- [x] **Role-based access:** Provide Big Boss, Task Master, and Observer operator roles with visible permission scopes; disable or guard score, task, captaincy, immunity, nomination, broadcast, timer, voting, and eviction controls according to the selected role.
+- [x] **Event notifications:** Provide a notification-center popover with unread count, live announcement events, timestamps, and synced-feed status; new announcements increment the unread counter and opening the center clears it.
+- [x] **Real-time activity log:** Retain the latest 12 house events in chronological order and display them in a dedicated streaming activity panel with event type, timestamps, and live status.
+- [x] **Performance analytics:** Provide Score Dashboard, House Statistics, and Productivity Tracker views with live score charts, team performance, health metrics, and individual productivity progress.
